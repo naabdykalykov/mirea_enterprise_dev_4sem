@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from pathlib import Path
 from fastapi.responses import HTMLResponse
-from models import User, CalculateRequest
+from models import User, CalculateRequest, UserPayload
 
 app = FastAPI()
 
@@ -28,3 +28,15 @@ current_user = User(name="Nursultan", id=1)
 @app.get("/users")
 def get_users():
     return current_user
+
+def is_adult(age: int) -> bool:
+    return age >= 18
+
+@app.post("/user")
+def create_user(data: UserPayload):
+    adult = is_adult(data.age)
+    return {
+        "name": data.name,
+        "age": data.age,
+        "is_adult": adult
+    }

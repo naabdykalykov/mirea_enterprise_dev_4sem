@@ -6,6 +6,11 @@ class User(BaseModel):
     id: int
 
 
+class UserPayload(BaseModel):
+    name: str
+    age: int
+
+
 class CalculateRequest(BaseModel):
     num1: float
     num2: float
