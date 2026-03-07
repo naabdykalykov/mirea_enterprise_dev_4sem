@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from pathlib import Path
 from fastapi.responses import HTMLResponse
-from models import User, CalculateRequest, UserPayload
+from models import User, CalculateRequest, UserPayload, Feedback
 
 app = FastAPI()
-
+feedback_storage: list[Feedback] = []
 
 @app.get("/")
 def read_root():
@@ -40,3 +40,12 @@ def create_user(data: UserPayload):
         "age": data.age,
         "is_adult": adult
     }
+
+@app.post("/feedback")
+def post_feedback(data: Feedback):
+    feedback_storage.append(data)
+    return {"message": f"Feedback received. Thank you, {data.name}."}
+
+@app.get("/feedback", response_model=list[Feedback])
+def get_feedback():
+    return feedback_storage

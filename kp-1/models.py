@@ -14,3 +14,7 @@ class UserPayload(BaseModel):
 class CalculateRequest(BaseModel):
     num1: float
     num2: float
+
+class Feedback(BaseModel):
+    name: str
+    message: str
