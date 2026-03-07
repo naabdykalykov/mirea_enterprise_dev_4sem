@@ -44,7 +44,7 @@ def create_user(data: UserPayload):
 @app.post("/feedback")
 def post_feedback(data: Feedback):
     feedback_storage.append(data)
-    return {"message": f"Feedback received. Thank you, {data.name}."}
+    return {"message": f"Спасибо, {data.name}! Ваш отзыв сохранён."}
 
 @app.get("/feedback", response_model=list[Feedback])
 def get_feedback():
