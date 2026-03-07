@@ -1,13 +1,9 @@
 from fastapi import FastAPI
 from pathlib import Path
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from models import User, CalculateRequest
 
 app = FastAPI()
-
-class CalculateRequest(BaseModel):
-    num1: float
-    num2: float
 
 
 @app.get("/")
@@ -26,3 +22,9 @@ def read_first_class_root():
 @app.post("/calculate")
 def calculate(data: CalculateRequest):
     return {"result": data.num1 + data.num2}
+
+current_user = User(name="Nursultan", id=1)
+
+@app.get("/users")
+def get_users():
+    return current_user
