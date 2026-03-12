@@ -1,11 +1,15 @@
 from fastapi import FastAPI
-from pathlib import Path
-from fastapi.responses import HTMLResponse
-from models import User, CalculateRequest, UserPayload, Feedback
+
+from models import UserCreate
 
 app = FastAPI()
-feedback_storage: list[Feedback] = []
+
 
 @app.get("/")
 def read_root():
     return {"message": "Авторелоад действительно работает"}
+
+
+@app.post("/create_user")
+def create_user(user: UserCreate):
+    return user
