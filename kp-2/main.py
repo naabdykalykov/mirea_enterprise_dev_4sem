@@ -1,10 +1,12 @@
 import time
 import re
+from datetime import datetime
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from itsdangerous import BadSignature, Signer
+from pydantic import BaseModel
 
 from data.products import sample_products
 from models import UserCreate
@@ -25,6 +27,34 @@ _SESSION_TTL_SECONDS = 60 * 5
 _SESSION_REFRESH_AFTER_SECONDS = 60 * 3
 
 _USER_IDS: dict[str, str] = {}
+
+_ACCEPT_LANGUAGE_RE = re.compile(
+    r"^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})?(?:\s*;\s*q=0(?:\.\d{1,3})?|"
+    r"\s*;\s*q=1(?:\.0{1,3})?)?(?:\s*,\s*[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})?"
+    r"(?:\s*;\s*q=0(?:\.\d{1,3})?|\s*;\s*q=1(?:\.0{1,3})?)?)*$"
+)
+
+
+class CommonHeaders(BaseModel):
+    user_agent: str
+    accept_language: str
+
+
+def get_common_headers(request: Request) -> CommonHeaders:
+    user_agent = request.headers.get("user-agent")
+    accept_language = request.headers.get("accept-language")
+
+    if not user_agent:
+        raise HTTPException(status_code=400, detail="Missing required header: User-Agent")
+    if not accept_language:
+        raise HTTPException(
+            status_code=400, detail="Missing required header: Accept-Language"
+        )
+
+    if not _ACCEPT_LANGUAGE_RE.fullmatch(accept_language):
+        raise HTTPException(status_code=400, detail="Invalid Accept-Language format")
+
+    return CommonHeaders(user_agent=user_agent, accept_language=accept_language)
 
 
 def _unauthorized() -> JSONResponse:
@@ -209,26 +239,23 @@ def profile(request: Request, response: Response):
 
 
 @app.get("/headers")
-def read_headers(request: Request):
-    user_agent = request.headers.get("user-agent")
-    accept_language = request.headers.get("accept-language")
+def read_headers(common: CommonHeaders = Depends(get_common_headers)):
+    return {"User-Agent": common.user_agent, "Accept-Language": common.accept_language}
 
-    if not user_agent:
-        raise HTTPException(status_code=400, detail="Missing required header: User-Agent")
-    if not accept_language:
-        raise HTTPException(
-            status_code=400, detail="Missing required header: Accept-Language"
-        )
 
-    accept_language_pattern = re.compile(
-        r"^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})?(?:\s*;\s*q=0(?:\.\d{1,3})?|"
-        r"\s*;\s*q=1(?:\.0{1,3})?)?(?:\s*,\s*[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})?"
-        r"(?:\s*;\s*q=0(?:\.\d{1,3})?|\s*;\s*q=1(?:\.0{1,3})?)?)*$"
-    )
-    if not accept_language_pattern.fullmatch(accept_language):
-        raise HTTPException(status_code=400, detail="Invalid Accept-Language format")
-
-    return {"User-Agent": user_agent, "Accept-Language": accept_language}
+@app.get("/info")
+def info(
+    response: Response,
+    common: CommonHeaders = Depends(get_common_headers),
+):
+    response.headers["X-Server-Time"] = datetime.now().isoformat(timespec="seconds")
+    return {
+        "message": "Добро пожаловать! Ваши заголовки успешно обработаны.",
+        "headers": {
+            "User-Agent": common.user_agent,
+            "Accept-Language": common.accept_language,
+        },
+    }
 
 
 @app.get("/product/{product_id}")
