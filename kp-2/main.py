@@ -1,3 +1,4 @@
+import time
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -19,13 +20,45 @@ _SESSIONS: dict[str, str] = {}
 
 _SECRET_KEY = "dev-secret-key-change-me"
 _signer = Signer(_SECRET_KEY)
-_COOKIE_MAX_AGE_SECONDS = 60 * 15
+_SESSION_TTL_SECONDS = 60 * 5
+_SESSION_REFRESH_AFTER_SECONDS = 60 * 3
 
 _USER_IDS: dict[str, str] = {}
 
 
 def _unauthorized() -> JSONResponse:
     return JSONResponse(status_code=401, content={"message": "Unauthorized"})
+
+
+def _session_expired() -> JSONResponse:
+    return JSONResponse(status_code=401, content={"message": "Session expired"})
+
+
+def _invalid_session() -> JSONResponse:
+    return JSONResponse(status_code=401, content={"message": "Invalid session"})
+
+
+def _build_session_token(user_id: str, last_activity_ts: int) -> str:
+    payload = f"{user_id}.{last_activity_ts}"
+    return _signer.sign(payload).decode("utf-8")
+
+
+def _verify_session_token(session_token: str) -> tuple[str, int] | None:
+    try:
+        payload = _signer.unsign(session_token).decode("utf-8")
+    except BadSignature:
+        return None
+
+    user_id, ts_str = payload.rsplit(".", 1)
+    if not user_id:
+        return None
+
+    try:
+        last_activity_ts = int(ts_str)
+    except ValueError:
+        return None
+
+    return user_id, last_activity_ts
 
 
 async def _extract_login_credentials(request: Request) -> tuple[str, str]:
@@ -65,7 +98,8 @@ async def login(request: Request, response: Response):
         return _unauthorized()
 
     user_id = str(uuid4())
-    session_token = _signer.sign(user_id).decode("utf-8")
+    last_activity_ts = int(time.time())
+    session_token = _build_session_token(user_id, last_activity_ts)
     _USER_IDS[user_id] = username
 
     response.set_cookie(
@@ -74,30 +108,50 @@ async def login(request: Request, response: Response):
         httponly=True,
         secure=False,
         samesite="lax",
-        max_age=_COOKIE_MAX_AGE_SECONDS,
+        max_age=_SESSION_TTL_SECONDS,
     )
 
     return {"message": "Logged in"}
 
 
 @app.get("/user")
-def get_user_profile(request: Request):
+def get_user_profile(request: Request, response: Response):
     session_token = request.cookies.get("session_token")
     if not session_token:
-        return _unauthorized()
+        return _invalid_session()
 
-    try:
-        user_id = _signer.unsign(session_token).decode("utf-8")
-    except BadSignature:
-        return _unauthorized()
+    verified = _verify_session_token(session_token)
+    if not verified:
+        return _invalid_session()
+
+    user_id, last_activity_ts = verified
+
+    now_ts = int(time.time())
+    if last_activity_ts > now_ts:
+        return _invalid_session()
+
+    elapsed = now_ts - last_activity_ts
+    if elapsed >= _SESSION_TTL_SECONDS:
+        return _session_expired()
+
+    if elapsed >= _SESSION_REFRESH_AFTER_SECONDS:
+        refreshed_token = _build_session_token(user_id, now_ts)
+        response.set_cookie(
+            key="session_token",
+            value=refreshed_token,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=_SESSION_TTL_SECONDS,
+        )
 
     username = _USER_IDS.get(user_id)
     if not username:
-        return _unauthorized()
+        return _invalid_session()
 
     user = _USERS_DB.get(username)
     if not user:
-        return _unauthorized()
+        return _invalid_session()
 
     return {
         "username": username,
@@ -107,23 +161,43 @@ def get_user_profile(request: Request):
 
 
 @app.get("/profile")
-def profile(request: Request):
+def profile(request: Request, response: Response):
     session_token = request.cookies.get("session_token")
     if not session_token:
-        return _unauthorized()
+        return _invalid_session()
 
-    try:
-        user_id = _signer.unsign(session_token).decode("utf-8")
-    except BadSignature:
-        return _unauthorized()
+    verified = _verify_session_token(session_token)
+    if not verified:
+        return _invalid_session()
+
+    user_id, last_activity_ts = verified
+
+    now_ts = int(time.time())
+    if last_activity_ts > now_ts:
+        return _invalid_session()
+
+    elapsed = now_ts - last_activity_ts
+    if elapsed >= _SESSION_TTL_SECONDS:
+        return _session_expired()
+
+    if elapsed >= _SESSION_REFRESH_AFTER_SECONDS:
+        refreshed_token = _build_session_token(user_id, now_ts)
+        response.set_cookie(
+            key="session_token",
+            value=refreshed_token,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=_SESSION_TTL_SECONDS,
+        )
 
     username = _USER_IDS.get(user_id)
     if not username:
-        return _unauthorized()
+        return _invalid_session()
 
     user = _USERS_DB.get(username)
     if not user:
-        return _unauthorized()
+        return _invalid_session()
 
     return {
         "user_id": user_id,
