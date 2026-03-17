@@ -1,4 +1,5 @@
 import time
+import re
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -205,6 +206,29 @@ def profile(request: Request, response: Response):
         "full_name": user.get("full_name"),
         "role": user.get("role"),
     }
+
+
+@app.get("/headers")
+def read_headers(request: Request):
+    user_agent = request.headers.get("user-agent")
+    accept_language = request.headers.get("accept-language")
+
+    if not user_agent:
+        raise HTTPException(status_code=400, detail="Missing required header: User-Agent")
+    if not accept_language:
+        raise HTTPException(
+            status_code=400, detail="Missing required header: Accept-Language"
+        )
+
+    accept_language_pattern = re.compile(
+        r"^[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})?(?:\s*;\s*q=0(?:\.\d{1,3})?|"
+        r"\s*;\s*q=1(?:\.0{1,3})?)?(?:\s*,\s*[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})?"
+        r"(?:\s*;\s*q=0(?:\.\d{1,3})?|\s*;\s*q=1(?:\.0{1,3})?)?)*$"
+    )
+    if not accept_language_pattern.fullmatch(accept_language):
+        raise HTTPException(status_code=400, detail="Invalid Accept-Language format")
+
+    return {"User-Agent": user_agent, "Accept-Language": accept_language}
 
 
 @app.get("/product/{product_id}")
