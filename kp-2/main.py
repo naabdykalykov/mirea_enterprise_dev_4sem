@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from itsdangerous import BadSignature, Signer
 
 from data.products import sample_products
 from models import UserCreate
@@ -14,6 +15,13 @@ _USERS_DB: dict[str, dict[str, object]] = {
 }
 
 _SESSIONS: dict[str, str] = {}
+
+
+_SECRET_KEY = "dev-secret-key-change-me"
+_signer = Signer(_SECRET_KEY)
+_COOKIE_MAX_AGE_SECONDS = 60 * 15
+
+_USER_IDS: dict[str, str] = {}
 
 
 def _unauthorized() -> JSONResponse:
@@ -56,8 +64,9 @@ async def login(request: Request, response: Response):
     if user is None or user.get("password") != password:
         return _unauthorized()
 
-    session_token = uuid4().hex
-    _SESSIONS[session_token] = username
+    user_id = str(uuid4())
+    session_token = _signer.sign(user_id).decode("utf-8")
+    _USER_IDS[user_id] = username
 
     response.set_cookie(
         key="session_token",
@@ -65,6 +74,7 @@ async def login(request: Request, response: Response):
         httponly=True,
         secure=False,
         samesite="lax",
+        max_age=_COOKIE_MAX_AGE_SECONDS,
     )
 
     return {"message": "Logged in"}
@@ -76,7 +86,12 @@ def get_user_profile(request: Request):
     if not session_token:
         return _unauthorized()
 
-    username = _SESSIONS.get(session_token)
+    try:
+        user_id = _signer.unsign(session_token).decode("utf-8")
+    except BadSignature:
+        return _unauthorized()
+
+    username = _USER_IDS.get(user_id)
     if not username:
         return _unauthorized()
 
@@ -85,6 +100,33 @@ def get_user_profile(request: Request):
         return _unauthorized()
 
     return {
+        "username": username,
+        "full_name": user.get("full_name"),
+        "role": user.get("role"),
+    }
+
+
+@app.get("/profile")
+def profile(request: Request):
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        return _unauthorized()
+
+    try:
+        user_id = _signer.unsign(session_token).decode("utf-8")
+    except BadSignature:
+        return _unauthorized()
+
+    username = _USER_IDS.get(user_id)
+    if not username:
+        return _unauthorized()
+
+    user = _USERS_DB.get(username)
+    if not user:
+        return _unauthorized()
+
+    return {
+        "user_id": user_id,
         "username": username,
         "full_name": user.get("full_name"),
         "role": user.get("role"),
